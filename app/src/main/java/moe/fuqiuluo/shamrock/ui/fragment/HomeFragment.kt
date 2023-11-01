@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import moe.fuqiuluo.shamrock.R
 import moe.fuqiuluo.shamrock.ui.app.RuntimeState
+import moe.fuqiuluo.shamrock.ui.theme.GlobalColor
 import moe.fuqiuluo.shamrock.ui.theme.LocalString
 
 @Composable
@@ -49,16 +50,22 @@ fun HomeFragment(
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        StatusCardBoard(runtime.isFined, runtime.coreVersion, runtime.coreCode, runtime.coreName)
+        StatusCardBoard(runtime.isFined, runtime.coreVersion, runtime.coreName)
 
         NoticeBox(
             modifier = Modifier
                 .padding(top = 12.dp),
             text = LocalString.legalWarning,
         ) {
-            Toast.makeText(ctx, arrayOf(
-                "请严格遵守哦！", "点我又不能下崽...", "家人们谁懂啊!", "别点啦，记得遵守规则啊！", "CRC：06f77ca1"
-            ).random(), Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                ctx, arrayOf(
+                    "请严格遵守哦！",
+                    "点我又不能下崽...",
+                    "家人们谁懂啊!",
+                    "别点啦，记得遵守规则啊！",
+                    "CRC：06f77ca1"
+                ).random(), Toast.LENGTH_SHORT
+            ).show()
         }
 
         ActionBox(
@@ -67,13 +74,16 @@ fun HomeFragment(
             painter = painterResource(id = R.drawable.ic_help_512),
             title = "使用教程 & 注意事项"
         ) { textColor ->
-            Text(text = """
+            Text(
+                text = """
                     Q：如何使用呢？
                     A：在Xposed/Lsposed中激活模块，选中目标应用重新后强行停止目标应用并重新启动即可。
                     Q：冻结封号是怎么回事？
                     A：也许未来的某个时刻，会加强检测吧。亦或许你发了什么不干净的东西呢。
                     Q：Shamrock有模块冲突？
                     A：目前没有发现模块冲突。
+                    Q：哼 (￢︿̫̿￢☆)
+                    A：啊啊啊啊啊啊啊啊啊啊啊啊
                     Q：Shamrock需求权限？
                     A：Shamrock使用到了Net权限，去实现HTTPAPI和WebSocket的一些请求，请确保你所设置的端口未被占用。当你使用来自一些Android机器人框架的插件，请确保本APP的存活，否则将无法运行；当你使用来自OneBot标准的相关接口时，无需保证APP的存活。
                     Q：Shamrock运行原理？
@@ -95,7 +105,6 @@ fun HomeFragment(
 private fun StatusCardBoard(
     isRight: MutableState<Boolean>,
     version: MutableState<String>,
-    code: MutableIntState,
     core: MutableState<String>
 ) {
     Row(
@@ -103,7 +112,7 @@ private fun StatusCardBoard(
             .fillMaxWidth()
             .background(
                 Brush.linearGradient(
-                    listOf(Color(0xFF03AA9A), Color(0xFF4DB8AD))
+                    listOf(GlobalColor.StatusCardStart, GlobalColor.StatusCardEnd)
                 ), shape = RoundedCornerShape(12.dp)
             ),
         verticalAlignment = Alignment.CenterVertically
@@ -116,8 +125,10 @@ private fun StatusCardBoard(
                 )
                 .width(20.dp)
                 .height(20.dp),
-            painter = painterResource(id = if (isRight.value) R.drawable.round_near_me_24 else
-                R.drawable.round_near_me_disabled_24),
+            painter = painterResource(
+                id = if (isRight.value) R.drawable.round_near_me_24 else
+                    R.drawable.round_near_me_disabled_24
+            ),
             contentDescription = "StatusIcon",
             tint = Color.White
         )
@@ -134,7 +145,7 @@ private fun StatusCardBoard(
                 fontSize = 14.sp
             )
             Text(
-                text = "${version.value} (${code.intValue}) -  ${core.value}",
+                text = "${version.value} - ${core.value}",
                 color = Color.White,
                 fontSize = 14.sp
             )
@@ -148,10 +159,12 @@ private fun MainPreview() {
     val isFined = remember { mutableStateOf(false) }
     val coreVersion = remember { mutableStateOf("1.0.0") }
     val coreName = remember { mutableStateOf("Xposed") }
-    val coreCode = remember { mutableIntStateOf(1000) }
+    val voiceSwitch = remember {
+        mutableStateOf(false)
+    }
 
     val runtime = remember {
-        RuntimeState(isFined, coreVersion, coreCode, coreName)
+        RuntimeState(isFined, coreVersion, coreName, voiceSwitch)
     }
 
     HomeFragment(runtime)

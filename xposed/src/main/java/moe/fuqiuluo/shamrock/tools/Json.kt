@@ -14,7 +14,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 
-val EmptyJsonObject = JsonObject(mapOf())
+val EmptyJsonObject = JsonObject(emptyMap())
+val EmptyJsonArray = JsonArray(emptyList())
 val EmptyJsonString = "".json
 
 val GlobalJson = Json {
@@ -46,14 +47,16 @@ val Collection<Any>.json: JsonArray
     get() {
         val arrayList = arrayListOf<JsonElement>()
         forEach {
-            when (it) {
-                is JsonElement -> arrayList.add(it)
-                is Number -> arrayList.add(it.json)
-                is String -> arrayList.add(it.json)
-                is Boolean -> arrayList.add(it.json)
-                is Map<*, *> -> arrayList.add((it as Map<String, Any>).json)
-                is Collection<*> -> arrayList.add((it as Collection<Any>).json)
-                else -> error("unknown array type: ${it::class.java}")
+            if (it != null) {
+                when (it) {
+                    is JsonElement -> arrayList.add(it)
+                    is Number -> arrayList.add(it.json)
+                    is String -> arrayList.add(it.json)
+                    is Boolean -> arrayList.add(it.json)
+                    is Map<*, *> -> arrayList.add((it as Map<String, Any>).json)
+                    is Collection<*> -> arrayList.add((it as Collection<Any>).json)
+                    else -> error("unknown array type: ${it::class.java}")
+                }
             }
         }
         return arrayList.jsonArray
@@ -63,14 +66,16 @@ val Map<String, Any>.json: JsonObject
     get() {
         val map = hashMapOf<String, JsonElement>()
         forEach { (key, any) ->
-            when (any) {
-                is JsonElement -> map[key] = any
-                is Number -> map[key] = any.json
-                is String -> map[key] = any.json
-                is Boolean -> map[key] = any.json
-                is Map<*, *> -> map[key] = (any as Map<String, Any>).json
-                is Collection<*> -> map[key] = (any as Collection<Any>).json
-                else -> error("unknown object type: ${any::class.java}")
+            if (any != null) {
+                when (any) {
+                    is JsonElement -> map[key] = any
+                    is Number -> map[key] = any.json
+                    is String -> map[key] = any.json
+                    is Boolean -> map[key] = any.json
+                    is Map<*, *> -> map[key] = (any as Map<String, Any>).json
+                    is Collection<*> -> map[key] = (any as Collection<Any>).json
+                    else -> error("unknown object type: ${any::class.java}")
+                }
             }
         }
         return map.jsonObject

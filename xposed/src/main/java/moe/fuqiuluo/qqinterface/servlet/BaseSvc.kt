@@ -11,6 +11,8 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import moe.fuqiuluo.proto.protobufOf
 import moe.fuqiuluo.shamrock.utils.PlatformUtils
 import moe.fuqiuluo.shamrock.xposed.helper.AppRuntimeFetcher
@@ -35,45 +37,41 @@ internal abstract class BaseSvc {
             return ToServiceMsg("mobileqq.service", app.currentAccountUin, cmd)
         }
 
-        suspend fun sendOidbAW(cmd: String, cmdId: Int, serviceId: Int, data: ByteArray, trpc: Boolean = false): ByteArray? {
-            return suspendCoroutine { continuation ->
-                val seq = MsfCore.getNextSeq()
-                val timer = timer(initialDelay = 5000L, period = 5000L) {
+        suspend fun sendOidbAW(cmd: String, cmdId: Int, serviceId: Int, data: ByteArray, trpc: Boolean = false, timeout: Long = 5000L): ByteArray? {
+            val seq = MsfCore.getNextSeq()
+            return withTimeoutOrNull(timeout) {
+                suspendCancellableCoroutine { continuation ->
                     GlobalScope.launch(Dispatchers.Default) {
-                        PacketHandler.unregisterLessHandler(seq)
-                        continuation.resume(null)
+                        DynamicReceiver.register(IPCRequest(cmd, seq) {
+                            val buffer = it.getByteArrayExtra("buffer")!!
+                            continuation.resume(buffer)
+                        })
                     }
+                    if (trpc) sendTrpcOidb(cmd, cmdId, serviceId, data, seq)
+                    else sendOidb(cmd, cmdId, serviceId, data, seq)
                 }
-                GlobalScope.launch(Dispatchers.Default) {
-                    DynamicReceiver.register(IPCRequest(cmd, seq) {
-                        val buffer = it.getByteArrayExtra("buffer")!!
-                        timer.cancel()
-                        continuation.resume(buffer)
-                    })
-                }
-                if (trpc) sendTrpcOidb(cmd, cmdId, serviceId, data, seq)
-                else sendOidb(cmd, cmdId, serviceId, data, seq)
-            }
+            }.also {
+                if (it == null)
+                    DynamicReceiver.unregister(seq)
+            }?.copyOf()
         }
 
-        suspend fun sendBufferAW(cmd: String, isPb: Boolean, data: ByteArray): ByteArray? {
-            return suspendCoroutine { continuation ->
-                val seq = MsfCore.getNextSeq()
-                val timer = timer(initialDelay = 5000L, period = 5000L) {
+        suspend fun sendBufferAW(cmd: String, isPb: Boolean, data: ByteArray, timeout: Long = 5000L): ByteArray? {
+            val seq = MsfCore.getNextSeq()
+            return withTimeoutOrNull<ByteArray?>(timeout) {
+                suspendCancellableCoroutine { continuation ->
                     GlobalScope.launch(Dispatchers.Default) {
-                        PacketHandler.unregisterLessHandler(seq)
-                        continuation.resume(null)
+                        DynamicReceiver.register(IPCRequest(cmd, seq) {
+                            val buffer = it.getByteArrayExtra("buffer")!!
+                            continuation.resume(buffer)
+                        })
+                        sendBuffer(cmd, isPb, data, seq)
                     }
                 }
-                GlobalScope.launch(Dispatchers.Default) {
-                    DynamicReceiver.register(IPCRequest(cmd, seq) {
-                        val buffer = it.getByteArrayExtra("buffer")!!
-                        timer.cancel()
-                        continuation.resume(buffer)
-                    })
-                    sendBuffer(cmd, isPb, data, seq)
-                }
-            }
+            }.also {
+                if (it == null)
+                    DynamicReceiver.unregister(seq)
+            }?.copyOf()
         }
 
         fun sendOidb(cmd: String, cmdId: Int, serviceId: Int, buffer: ByteArray, seq: Int = -1, trpc: Boolean = false) {
@@ -110,7 +108,7 @@ internal abstract class BaseSvc {
             app.sendToService(to)
         }
 
-        fun sendBuffer(cmd: String, isPb: Boolean, buffer: ByteArray, seq: Int) {
+        fun sendBuffer(cmd: String, isPb: Boolean, buffer: ByteArray, seq: Int = MsfCore.getNextSeq()) {
             val toServiceMsg = ToServiceMsg("mobileqq.service", app.currentUin, cmd)
             toServiceMsg.putWupBuffer(buffer)
             toServiceMsg.addAttribute("req_pb_protocol_flag", isPb)

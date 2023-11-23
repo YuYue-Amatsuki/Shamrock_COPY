@@ -1,5 +1,7 @@
 package com.tencent.qqnt.kernel.nativeinterface;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -16,7 +18,25 @@ public interface IKernelMsgService {
 
     void addLocalRecordMsg(Contact contact, long msgId, MsgElement elem, HashMap<Integer, MsgAttributeInfo> hashMap, boolean z, IOperateCallback callback);
 
-    void getMultiMsg(Contact contact, long msgId, long uniseq, IGetMultiMsgCallback cb);
+    long getMsgUniqueId(long time);
+
+    void addSendMsg(long msgId, Contact contact, ArrayList<MsgElement> msgList, HashMap<Integer, MsgAttributeInfo> hashMap);
+
+    void getMsgs(@NotNull Contact contact, long startMsgId, int cnt, boolean queryOrder, @NotNull IMsgOperateCallback iMsgOperateCallback);
+
+    void getMsgsIncludeSelf(Contact contact, long startMsgId, int count, boolean queryOrder, IMsgOperateCallback iMsgOperateCallback);
+
+    void translatePtt2Text(long j2, Contact contact, MsgElement msgElement, IOperateCallback iOperateCallback);
+
+    void getMultiMsg(Contact contact, long rootMsgId, long parentMsgId, IGetMultiMsgCallback cb);
+
+    void multiForwardMsg(ArrayList<MultiMsgInfo> arrayList, Contact from, Contact to, IOperateCallback cb);
+
+    void setAllC2CAndGroupMsgRead(IOperateCallback cb);
+
+    void clearMsgRecords(Contact contact, IClearMsgRecordsCallback cb);
+
+    String createUidFromTinyId(long j2, long j3);
 
     void switchBackGround(BackGroundInfo backGroundInfo, IOperateCallback cb);
 

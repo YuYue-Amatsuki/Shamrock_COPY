@@ -240,7 +240,7 @@ internal object GlobalEventTransmitter: BaseSvc() {
                 type = noticeType,
                 subType = noticeSubType,
                 operatorId = operation,
-                userId = operation,
+                userId = target,
                 senderId = operation,
                 target = target,
                 groupId = groupCode
@@ -311,6 +311,30 @@ internal object GlobalEventTransmitter: BaseSvc() {
             ))
             return true
         }
+
+        suspend fun transGroupApply(
+            time: Long,
+            operator: Long,
+            reason: String,
+            groupCode: Long,
+
+            flag: String,
+            subType: NoticeSubType
+        ): Boolean {
+            pushNotice(NoticeEvent(
+                time = time,
+                selfId = app.longAccountUin,
+                postType = PostType.Notice,
+                type = NoticeType.GroupApply,
+                operatorId = operator,
+                tip = reason,
+                groupId = groupCode,
+                subType = subType,
+                flag = flag
+            ))
+            return true
+        }
+
     }
 
     /**
@@ -338,11 +362,26 @@ internal object GlobalEventTransmitter: BaseSvc() {
                 selfId = app.longAccountUin,
                 postType = PostType.Notice,
                 type = NoticeType.FriendRecall,
-                subType = NoticeSubType.Poke,
                 operatorId = operation,
                 userId = operation,
                 msgId = msgHashId,
                 tip = tipText
+            ))
+            return true
+        }
+
+
+        suspend fun transFriendApply(time: Long, operation: Long, tipText: String, flag: String): Boolean {
+            pushNotice(NoticeEvent(
+                time = time,
+                selfId = app.longAccountUin,
+                postType = PostType.Notice,
+                type = NoticeType.FriendApply,
+                operatorId = operation,
+                userId = operation,
+                tip = tipText,
+                flag = flag
+
             ))
             return true
         }

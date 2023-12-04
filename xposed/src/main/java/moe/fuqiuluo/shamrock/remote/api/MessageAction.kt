@@ -17,33 +17,50 @@ import moe.fuqiuluo.shamrock.tools.fetchGetOrThrow
 import moe.fuqiuluo.shamrock.tools.fetchOrNull
 import moe.fuqiuluo.shamrock.tools.fetchOrThrow
 import moe.fuqiuluo.shamrock.tools.fetchPostJsonArray
+import moe.fuqiuluo.shamrock.tools.fetchPostJsonObject
 import moe.fuqiuluo.shamrock.tools.fetchPostJsonString
 import moe.fuqiuluo.shamrock.tools.fetchPostOrNull
 import moe.fuqiuluo.shamrock.tools.fetchPostOrThrow
 import moe.fuqiuluo.shamrock.tools.getOrPost
 import moe.fuqiuluo.shamrock.tools.isJsonData
+import moe.fuqiuluo.shamrock.tools.isJsonObject
 import moe.fuqiuluo.shamrock.tools.isJsonString
+import moe.fuqiuluo.shamrock.tools.jsonArray
 import moe.fuqiuluo.shamrock.tools.respond
 
 fun Routing.messageAction() {
-    route("/send_group_forward_msg") {
+    route("/send_group_forward_(msg|message)".toRegex()) {
         post {
             val groupId = fetchPostOrNull("group_id")
             val messages = fetchPostJsonArray("messages")
-            call.respondText(SendGroupForwardMsg(messages, groupId ?: ""), ContentType.Application.Json)
+            call.respondText(SendForwardMessage(MsgConstant.KCHATTYPEGROUP, groupId ?: "", messages), ContentType.Application.Json)
         }
         get {
             respond(false, Status.InternalHandlerError, "Not support GET method")
         }
     }
-    post("/send_group_forward_msg") {
 
+    route("/send_private_forward_(msg|message)".toRegex()) {
+        post {
+            val userId = fetchPostOrNull("user_id")
+            val messages = fetchPostJsonArray("messages")
+            call.respondText(SendForwardMessage(MsgConstant.KCHATTYPEC2C, userId ?: "", messages), ContentType.Application.Json)
+        }
+        get {
+            respond(false, Status.InternalHandlerError, "Not support GET method")
+        }
     }
 
-    post("/send_private_forward_msg") {
-        val userId = fetchPostOrNull("user_id")
-        val messages = fetchPostJsonArray("messages")
-        call.respondText(SendPrivateForwardMsg(messages, userId ?: ""), ContentType.Application.Json)
+    route("/send_forward_(msg|message)".toRegex()) {
+        post {
+            val userId = fetchPostOrNull("user_id")
+            val groupId = fetchPostOrNull("group_id")
+            val messages = fetchPostJsonArray("messages")
+            call.respondText(SendForwardMessage(MsgConstant.KCHATTYPEC2C, userId ?: groupId?: "", messages), ContentType.Application.Json)
+        }
+        get {
+            respond(false, Status.InternalHandlerError, "Not support GET method")
+        }
     }
 
     getOrPost("/get_forward_msg") {
@@ -116,20 +133,30 @@ fun Routing.messageAction() {
 
             val userId = fetchPostOrNull("user_id")
             val groupId = fetchPostOrNull("group_id")
+            val peerId = if (chatType == MsgConstant.KCHATTYPEC2C) userId!! else groupId!!
 
             call.respondText(if (isJsonData() && !isJsonString("message")) {
-                SendMessage(
-                    chatType = chatType,
-                    peerId = if (chatType == MsgConstant.KCHATTYPEC2C) userId!! else groupId!!,
-                    message = fetchPostJsonArray("message"),
-                    fromId = groupId ?: userId ?: ""
-                )
+                if (isJsonObject("message")) {
+                    SendMessage(
+                        chatType = chatType,
+                        peerId = peerId,
+                        message = listOf(fetchPostJsonObject("message")).jsonArray,
+                        fromId = groupId ?: userId ?: ""
+                    )
+                } else {
+                    SendMessage(
+                        chatType = chatType,
+                        peerId = peerId,
+                        message = fetchPostJsonArray("message"),
+                        fromId = groupId ?: userId ?: ""
+                    )
+                }
             } else {
                 val autoEscape = fetchPostOrNull("auto_escape")?.toBooleanStrict() ?: false
                 //SendMessage(chatType, peerId, fetchPostOrThrow("message"), autoEscape)
                 SendMessage(
                     chatType = chatType,
-                    peerId = if (chatType == MsgConstant.KCHATTYPEC2C) userId!! else groupId!!,
+                    peerId = peerId,
                     message = fetchPostOrThrow("message"),
                     autoEscape = autoEscape,
                     fromId = groupId ?: userId ?: ""
@@ -154,7 +181,19 @@ fun Routing.messageAction() {
                 if (isJsonString("message")) {
                     SendMessage(MsgConstant.KCHATTYPEGROUP, groupId, fetchPostJsonString("message"), autoEscape)
                 } else {
-                    SendMessage(MsgConstant.KCHATTYPEGROUP, groupId, fetchPostJsonArray("message"))
+                    if (isJsonObject("message")) {
+                        SendMessage(
+                            chatType = MsgConstant.KCHATTYPEGROUP,
+                            peerId = groupId,
+                            message = listOf(fetchPostJsonObject("message")).jsonArray
+                        )
+                    } else {
+                        SendMessage(
+                            chatType = MsgConstant.KCHATTYPEGROUP,
+                            peerId = groupId,
+                            message = fetchPostJsonArray("message")
+                        )
+                    }
                 }
             } else {
                 SendMessage(MsgConstant.KCHATTYPEGROUP, groupId, fetchPostOrThrow("message"), autoEscape)
@@ -183,27 +222,43 @@ fun Routing.messageAction() {
             val groupId = fetchPostOrNull("group_id")
             val autoEscape = fetchPostOrNull("auto_escape")?.toBooleanStrict() ?: false
 
+            val chatType = if (groupId == null) MsgConstant.KCHATTYPEC2C else MsgConstant.KCHATTYPETEMPC2CFROMGROUP
+            val fromId = groupId ?: userId
+
+
             val result = if (isJsonData()) {
                 if (isJsonString("message")) {
                     SendMessage(
-                        chatType = if (groupId == null) MsgConstant.KCHATTYPEC2C else MsgConstant.KCHATTYPETEMPC2CFROMGROUP,
-                        userId,
-                        fetchPostJsonString("message"),
-                        autoEscape
+                        chatType = chatType,
+                        peerId = userId,
+                        message = fetchPostJsonString("message"),
+                        autoEscape = autoEscape,
+                        fromId = fromId
                     )
                 } else {
-                    SendMessage(
-                        chatType = if (groupId == null) MsgConstant.KCHATTYPEC2C else MsgConstant.KCHATTYPETEMPC2CFROMGROUP,
-                        userId,
-                        fetchPostJsonArray("message")
-                    )
+                    if (isJsonObject("message")) {
+                        SendMessage(
+                            chatType = chatType,
+                            peerId = userId,
+                            message = listOf(fetchPostJsonObject("message")).jsonArray,
+                            fromId = fromId
+                        )
+                    } else {
+                        SendMessage(
+                            chatType = chatType,
+                            peerId = userId,
+                            message = fetchPostJsonArray("message"),
+                            fromId = fromId
+                        )
+                    }
                 }
             } else {
                 SendMessage(
-                    chatType = if (groupId == null) MsgConstant.KCHATTYPEC2C else MsgConstant.KCHATTYPETEMPC2CFROMGROUP,
-                    userId,
-                    fetchPostOrThrow("message"),
-                    autoEscape
+                    chatType = chatType,
+                    peerId = userId,
+                    message = fetchPostOrThrow("message"),
+                    autoEscape = autoEscape,
+                    fromId = fromId
                 )
             }
 

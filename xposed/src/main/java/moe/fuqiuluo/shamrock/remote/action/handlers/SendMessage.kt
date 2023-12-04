@@ -14,6 +14,7 @@ import moe.fuqiuluo.shamrock.tools.json
 import moe.fuqiuluo.shamrock.helper.Level
 import moe.fuqiuluo.shamrock.helper.LogCenter
 import moe.fuqiuluo.shamrock.tools.EmptyJsonString
+import moe.fuqiuluo.shamrock.tools.jsonArray
 
 internal object SendMessage: IActionHandler() {
     override suspend fun internalHandle(session: ActionSession): String {
@@ -47,9 +48,12 @@ internal object SendMessage: IActionHandler() {
                 val autoEscape = session.getBooleanOrDefault("auto_escape", false)
                 val message = session.getString("message")
                 invoke(chatType, peerId, message, autoEscape, echo = session.echo, fromId = fromId)
-            } else {
+            } else if (session.isArray("message")) {
                 val message = session.getArray("message")
                 invoke(chatType, peerId, message, session.echo, fromId = fromId)
+            } else {
+                val message = session.getObject("message")
+                invoke(chatType, peerId, listOf( message ).jsonArray, session.echo, fromId = fromId)
             }
         } catch (e: ParamsException) {
             return noParam(e.message!!, session.echo)
@@ -71,7 +75,14 @@ internal object SendMessage: IActionHandler() {
         //    return logic("contact is not found", echo = echo)
         //}
         val result = if (autoEscape) {
-            MsgSvc.sendToAio(chatType, peerId, arrayListOf(message).json, fromId = fromId)
+            MsgSvc.sendToAio(chatType, peerId, listOf(
+                mapOf(
+                    "type" to "text",
+                    "data" to mapOf(
+                        "text" to message
+                    )
+                )
+            ).json, fromId = fromId)
         } else {
             val msg = MessageHelper.decodeCQCode(message)
             if (msg.isEmpty()) {
@@ -81,12 +92,16 @@ internal object SendMessage: IActionHandler() {
                 MsgSvc.sendToAio(chatType, peerId, msg, fromId = fromId)
             }
         }
-        if (result.first <= 0) {
+        if (result.isFailure) {
+            return logic(result.exceptionOrNull()?.message ?: "", echo)
+        }
+        val pair = result.getOrNull() ?: Pair(0L, 0)
+        if (pair.first <= 0) {
             return logic("send message failed", echo = echo)
         }
         return ok(MessageResult(
-            msgId = result.second,
-            time = (result.first * 0.001).toLong()
+            msgId = pair.second,
+            time = (pair.first * 0.001).toLong()
         ), echo = echo)
     }
 
@@ -98,12 +113,16 @@ internal object SendMessage: IActionHandler() {
         //    return logic("contact is not found", echo = echo)
         //}
         val result = MsgSvc.sendToAio(chatType, peerId, message, fromId = fromId)
-        if (result.first <= 0) {
+        if (result.isFailure) {
+            return logic(result.exceptionOrNull()?.message ?: "", echo)
+        }
+        val pair = result.getOrNull() ?: Pair(0L, 0)
+        if (pair.first <= 0) {
             return logic("send message failed", echo = echo)
         }
         return ok(MessageResult(
-            msgId = result.second,
-            time = (result.first * 0.001).toLong()
+            msgId = pair.second,
+            time = (pair.first * 0.001).toLong()
         ), echo)
     }
 

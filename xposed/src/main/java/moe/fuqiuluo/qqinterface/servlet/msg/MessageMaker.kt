@@ -22,6 +22,9 @@ import com.tencent.qqnt.kernel.nativeinterface.ReplyElement
 import com.tencent.qqnt.kernel.nativeinterface.RichMediaFilePathInfo
 import com.tencent.qqnt.kernel.nativeinterface.TextElement
 import com.tencent.qqnt.kernel.nativeinterface.VideoElement
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import moe.fuqiuluo.qqinterface.servlet.CardSvc
@@ -70,6 +73,8 @@ import tencent.im.oidb.cmd0xdc2.oidb_cmd0xdc2
 import tencent.im.oidb.oidb_sso
 import java.io.File
 import kotlin.math.roundToInt
+import kotlin.random.Random
+import kotlin.random.nextInt
 
 internal typealias IMaker = suspend (Int, Long, String, JsonObject) -> Result<MsgElement>
 
@@ -96,8 +101,90 @@ internal object MessageMaker {
         "touch" to MessageMaker::createTouchElem,
         "weather" to MessageMaker::createWeatherElem,
         "json" to MessageMaker::createJsonElem,
+        "new_dice" to MessageMaker::createNewDiceElem,
+        "new_rps" to MessageMaker::createNewRpsElem,
+        "basketball" to MessageMaker::createBasketballElem,
+        //"node" to MessageMaker::createNodeElem,
         //"multi_msg" to MessageMaker::createLongMsgStruct,
     )
+
+//    private suspend fun createNodeElem(
+//        chatType: Int,
+//        msgId: Long,
+//        peerId: String,
+//        data: JsonObject
+//    ): Result<MsgElement> {
+//        data.checkAndThrow("data")
+//        SendForwardMessage(MsgConstant.KCHATTYPEC2C, TicketSvc.getUin(), data["content"].asJsonArray)
+//
+//    }
+    /**\
+     *         msgElement.setFaceElement(new FaceElement());
+     *         msgElement.getFaceElement().setFaceIndex(114);
+     *         msgElement.getFaceElement().setFaceText("/篮球");
+     *         msgElement.getFaceElement().setFaceType(3);
+     *         msgElement.getFaceElement().setPackId("1");
+     *         msgElement.getFaceElement().setStickerId("13");
+     *         msgElement.getFaceElement().setRandomType(1);
+     *         msgElement.getFaceElement().setImageType(1);
+     *         msgElement.getFaceElement().setStickerType(2);
+     *         msgElement.getFaceElement().setSourceType(1);
+     *         msgElement.getFaceElement().setSurpriseId("");
+     *         msgElement.getFaceElement().setResultId(String.valueOf(new Random().nextInt(5) + 1));
+     */
+    private suspend fun createBasketballElem(chatType: Int, msgId: Long, peerId: String, data: JsonObject): Result<MsgElement> {
+        val elem = MsgElement()
+        elem.elementType = MsgConstant.KELEMTYPEFACE
+        val face = FaceElement()
+        face.faceIndex = 114
+        face.faceText = "/篮球"
+        face.faceType = 3
+        face.packId = "1"
+        face.stickerId = "13"
+        face.sourceType = 1
+        face.stickerType = 2
+        face.resultId = Random.nextInt(1 .. 5).toString()
+        face.surpriseId = ""
+        face.randomType = 1
+        elem.faceElement = face
+        return Result.success(elem)
+    }
+
+    private suspend fun createNewRpsElem(chatType: Int, msgId: Long, peerId: String, data: JsonObject): Result<MsgElement> {
+        val elem = MsgElement()
+        elem.elementType = MsgConstant.KELEMTYPEFACE
+        val face = FaceElement()
+        face.faceIndex = 359
+        face.faceText = "/包剪锤"
+        face.faceType = 3
+        face.packId = "1"
+        face.stickerId = "34"
+        face.sourceType = 1
+        face.stickerType = 2
+        face.resultId = ""
+        face.surpriseId = ""
+        face.randomType = 1
+        elem.faceElement = face
+        return Result.success(elem)
+    }
+
+    private suspend fun createNewDiceElem(chatType: Int, msgId: Long, peerId: String, data: JsonObject): Result<MsgElement> {
+        val elem = MsgElement()
+        elem.elementType = MsgConstant.KELEMTYPEFACE
+        val face = FaceElement()
+        face.faceIndex = 358
+        face.faceText = "/骰子"
+        face.faceType = 3
+        face.packId = "1"
+        face.stickerId = "33"
+        face.sourceType = 1
+        face.stickerType = 2
+        face.resultId = ""
+        face.surpriseId = ""
+        face.randomType = 1
+        elem.faceElement = face
+        return Result.success(elem)
+    }
 
     private suspend fun createJsonElem(
         chatType: Int,
@@ -107,7 +194,20 @@ internal object MessageMaker {
     ): Result<MsgElement> {
         data.checkAndThrow("data")
         val jsonStr = data["data"].let {
-            if (it is JsonObject) it.asJsonObject.toString() else it.asString
+            if (it is JsonObject) it.asJsonObject.toString() else {
+                val str = it.asStringOrNull ?: ""
+                // 检查字符串是否是合法json，不然qq会闪退
+                try {
+                    val element = Json.decodeFromString<JsonElement>(str)
+                    if (element !is JsonObject) {
+                        return Result.failure(Exception("不合法的JSON字符串"))
+                    }
+                } catch (err: Throwable) {
+                    LogCenter.log(err.stackTraceToString(), Level.ERROR)
+                    return Result.failure(Exception("不合法的JSON字符串"))
+                }
+                str
+            }
         }
         val element = MsgElement()
         element.elementType = MsgConstant.KELEMTYPEARKSTRUCT
@@ -527,10 +627,16 @@ internal object MessageMaker {
             else -> {
                 val info = GroupSvc.getTroopMemberInfoByUin(peerId, qq, true).onFailure {
                     LogCenter.log("无法获取群成员信息: $qq", Level.ERROR)
-                }.getOrThrow()
-                at.content = "@${info.troopnick
-                    .ifNullOrEmpty(info.friendnick)
-                    .ifNullOrEmpty(qq)}"
+                }.getOrNull()
+                if (info != null) {
+                    at.content = "@${
+                        info.troopnick
+                            .ifNullOrEmpty(info.friendnick)
+                            .ifNullOrEmpty(qq)
+                    }"
+                } else {
+                    at.content = "@${data["name"].asStringOrNull.ifNullOrEmpty(qq)}"
+                }
                 at.atType = MsgConstant.ATTYPEONE
                 at.atNtUid = ContactHelper.getUidByUinAsync(qq.toLong())
             }
@@ -634,24 +740,26 @@ internal object MessageMaker {
     }
 
     private suspend fun createImageElem(chatType: Int, msgId: Long, peerId: String, data: JsonObject): Result<MsgElement> {
-        data.checkAndThrow("file")
         val isOriginal = data["original"].asBooleanOrNull ?: true
         val isFlash = data["flash"].asBooleanOrNull ?: false
-        val file = data["file"].asString.let {
-            val md5 = it.replace(regex = "[{}\\-]".toRegex(), replacement = "").split(".")[0].lowercase()
-            var tmpPicFile = if (md5.length == 32) {
+        val filePath = data["file"].asStringOrNull
+        val url = data["url"].asStringOrNull
+        var file: File? = null
+        if (filePath != null) {
+            val md5 = filePath.replace(regex = "[{}\\-]".toRegex(), replacement = "").split(".")[0].lowercase()
+            file = if (md5.length == 32) {
                 FileUtils.getFile(md5)
             } else {
-                FileUtils.parseAndSave(it)
+                FileUtils.parseAndSave(filePath)
             }
-            if (!tmpPicFile.exists() && data.containsKey("url")) {
-                tmpPicFile = FileUtils.parseAndSave(data["url"].asString)
-            }
-            return@let tmpPicFile
         }
-        if (!file.exists()) {
+        if ((file == null || !file.exists()) && url != null) {
+            file = FileUtils.parseAndSave(url)
+        }
+        if (file?.exists() == false) {
             throw LogicException("Image(${file.name}) file is not exists, please check your filename.")
         }
+        requireNotNull(file)
 
         Transfer with when (chatType) {
             MsgConstant.KCHATTYPEGROUP -> Troop(peerId)

@@ -19,8 +19,13 @@ import moe.fuqiuluo.shamrock.remote.service.data.push.MessageTempSource
 import moe.fuqiuluo.shamrock.remote.service.data.push.NoticeEvent
 import moe.fuqiuluo.shamrock.remote.service.data.push.NoticeSubType
 import moe.fuqiuluo.shamrock.remote.service.data.push.NoticeType
+import moe.fuqiuluo.shamrock.remote.service.data.push.PokeDetail
 import moe.fuqiuluo.shamrock.remote.service.data.push.PrivateFileMsg
+import moe.fuqiuluo.shamrock.remote.service.data.push.RequestEvent
+import moe.fuqiuluo.shamrock.remote.service.data.push.RequestSubType
+import moe.fuqiuluo.shamrock.remote.service.data.push.RequestType
 import moe.fuqiuluo.shamrock.remote.service.data.push.Sender
+import moe.fuqiuluo.shamrock.remote.service.data.push.SignDetail
 import moe.fuqiuluo.shamrock.tools.ShamrockDsl
 import moe.fuqiuluo.shamrock.tools.json
 import java.util.ArrayList
@@ -32,13 +37,18 @@ internal object GlobalEventTransmitter: BaseSvc() {
     private val noticeEventFlow by lazy {
         MutableSharedFlow<NoticeEvent>()
     }
+    private val requestEventFlow by lazy {
+        MutableSharedFlow<RequestEvent>()
+    }
 
     private suspend fun pushNotice(noticeEvent: NoticeEvent) = noticeEventFlow.emit(noticeEvent)
+
+    private suspend fun pushRequest(requestEvent: RequestEvent) = requestEventFlow.emit(requestEvent)
 
     private suspend fun transMessageEvent(record: MsgRecord, message: MessageEvent) = messageEventFlow.emit(record to message)
 
     /**
-     * 消息 手淫器
+     * 消息 手淫器 //WTF?什么鬼注释
      */
     object MessageTransmitter {
         /**
@@ -71,8 +81,11 @@ internal object GlobalEventTransmitter: BaseSvc() {
                     font = 0,
                     sender = Sender(
                         userId = record.senderUin,
-                        nickname = record.sendNickName,
-                        card = record.sendMemberName,
+                        nickname = record.sendNickName
+                            .ifBlank { record.sendRemarkName }
+                            .ifBlank { record.sendMemberName }
+                            .ifBlank { record.peerName },
+                        card = record.sendMemberName.ifBlank { record.sendNickName },
                         role = when (record.senderUin) {
                             GroupSvc.getOwner(record.peerUin.toString()) -> MemberRole.Owner
                             in GroupSvc.getAdminList(record.peerUin.toString()) -> MemberRole.Admin
@@ -101,7 +114,7 @@ internal object GlobalEventTransmitter: BaseSvc() {
             var nickName = record.sendNickName
             if (nickName.isNullOrBlank()) {
                 CardSvc.getProfileCard(record.senderUin.toString()).onSuccess {
-                    nickName = it.strNick ?: ""
+                    nickName = it.strNick ?: record.peerName
                 }
             }
             transMessageEvent(record,
@@ -210,7 +223,25 @@ internal object GlobalEventTransmitter: BaseSvc() {
      * 群聊通知 通知器
      */
     object GroupNoticeTransmitter {
-        suspend fun transGroupPoke(time: Long, operation: Long, target: Long, groupCode: Long): Boolean {
+        suspend fun transGroupSign(time: Long, target: Long, action: String?, rankImg: String?, groupCode: Long): Boolean {
+            pushNotice(NoticeEvent(
+                time = time,
+                selfId = app.longAccountUin,
+                postType = PostType.Notice,
+                type = NoticeType.Notify,
+                subType = NoticeSubType.Sign,
+                userId = target,
+                groupId = groupCode,
+                target = target,
+                signDetail = SignDetail(
+                    rankImg = rankImg,
+                    action = action
+                )
+            ))
+            return true
+        }
+
+        suspend fun transGroupPoke(time: Long, operation: Long, target: Long, action: String?, suffix: String?, actionImg: String?, groupCode: Long): Boolean {
             pushNotice(NoticeEvent(
                 time = time,
                 selfId = app.longAccountUin,
@@ -220,7 +251,12 @@ internal object GlobalEventTransmitter: BaseSvc() {
                 operatorId = operation,
                 userId = operation,
                 groupId = groupCode,
-                target = target
+                target = target,
+                pokeDetail = PokeDetail(
+                    action = action,
+                    suffix = suffix,
+                    actionImg = actionImg
+                )
             ))
             return true
         }
@@ -281,7 +317,7 @@ internal object GlobalEventTransmitter: BaseSvc() {
                 type = NoticeType.GroupBan,
                 subType = if (duration == 0) NoticeSubType.LiftBan else NoticeSubType.Ban,
                 operatorId = operation,
-                userId = operation,
+                userId = target,
                 senderId = operation,
                 target = target,
                 groupId = groupCode,
@@ -312,36 +348,73 @@ internal object GlobalEventTransmitter: BaseSvc() {
             return true
         }
 
-        suspend fun transGroupApply(
+        suspend fun transCardChange(
             time: Long,
-            operator: Long,
-            reason: String,
-            groupCode: Long,
+            targetId: Long,
+            oldCard: String,
+            newCard: String,
+            groupId: Long
+        ): Boolean {
+            pushNotice(NoticeEvent(
+                time = time,
+                selfId = app.longAccountUin,
+                postType = PostType.Notice,
+                type = NoticeType.GroupCard,
+                userId = targetId,
+                cardNew = newCard,
+                cardOld = oldCard,
+                groupId = groupId
+            ))
+            return true
+        }
 
-            flag: String,
+        suspend fun transTitleChange(
+            time: Long,
+            targetId: Long,
+            title: String,
+            groupId: Long
+        ): Boolean {
+            pushNotice(NoticeEvent(
+                time = time,
+                selfId = app.longAccountUin,
+                postType = PostType.Notice,
+                type = NoticeType.Notify,
+                userId = targetId,
+                groupId = groupId,
+                title = title,
+                subType = NoticeSubType.Title
+            ))
+            return true
+        }
+
+        suspend fun transEssenceChange(
+            time: Long,
+            senderUin: Long,
+            operatorUin: Long,
+            msgId: Int,
+            groupId: Long,
             subType: NoticeSubType
         ): Boolean {
             pushNotice(NoticeEvent(
                 time = time,
                 selfId = app.longAccountUin,
                 postType = PostType.Notice,
-                type = NoticeType.GroupApply,
-                operatorId = operator,
-                tip = reason,
-                groupId = groupCode,
-                subType = subType,
-                flag = flag
+                type = NoticeType.Essence,
+                senderId = senderUin,
+                groupId = groupId,
+                operatorId = operatorUin,
+                msgId = msgId,
+                subType = subType
             ))
             return true
         }
-
     }
 
     /**
      * 私聊通知 通知器
      */
     object PrivateNoticeTransmitter {
-        suspend fun transPrivatePoke(msgTime: Long, operation: Long, target: Long): Boolean {
+        suspend fun transPrivatePoke(msgTime: Long, operation: Long, target: Long, action: String?, suffix: String?, actionImg: String?): Boolean {
             pushNotice(NoticeEvent(
                 time = msgTime,
                 selfId = app.longAccountUin,
@@ -351,7 +424,12 @@ internal object GlobalEventTransmitter: BaseSvc() {
                 operatorId = operation,
                 userId = operation,
                 senderId = operation,
-                target = target
+                target = target,
+                pokeDetail = PokeDetail(
+                    actionImg = actionImg,
+                    action = action,
+                    suffix = suffix
+                )
             ))
             return true
         }
@@ -370,16 +448,42 @@ internal object GlobalEventTransmitter: BaseSvc() {
             return true
         }
 
+    }
 
-        suspend fun transFriendApply(time: Long, operation: Long, tipText: String, flag: String): Boolean {
-            pushNotice(NoticeEvent(
+    /**
+     * 请求 通知器
+     */
+    object RequestTransmitter {
+        suspend fun transFriendApp(time: Long, operation: Long, tipText: String, flag: String): Boolean {
+            pushRequest(RequestEvent(
                 time = time,
                 selfId = app.longAccountUin,
-                postType = PostType.Notice,
-                type = NoticeType.FriendApply,
-                operatorId = operation,
+                postType = PostType.Request,
+                type = RequestType.Friend,
                 userId = operation,
-                tip = tipText,
+                comment = tipText,
+                flag = flag
+            ))
+            return true
+        }
+
+        suspend fun transGroupApply(
+            time: Long,
+            operator: Long,
+            reason: String,
+            groupCode: Long,
+            flag: String,
+            subType: RequestSubType
+        ): Boolean {
+            pushRequest(RequestEvent(
+                time = time,
+                selfId = app.longAccountUin,
+                postType = PostType.Request,
+                type = RequestType.Group,
+                userId = operator,
+                comment = reason,
+                groupId = groupCode,
+                subType = subType,
                 flag = flag
 
             ))
@@ -395,6 +499,12 @@ internal object GlobalEventTransmitter: BaseSvc() {
     @ShamrockDsl
     suspend inline fun onNoticeEvent(collector: FlowCollector<NoticeEvent>) {
         noticeEventFlow
+            .collect(collector)
+    }
+
+    @ShamrockDsl
+    suspend inline fun onRequestEvent(collector: FlowCollector<RequestEvent>) {
+        requestEventFlow
             .collect(collector)
     }
 }

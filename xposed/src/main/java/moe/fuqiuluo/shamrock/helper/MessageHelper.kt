@@ -6,6 +6,10 @@ import com.tencent.qqnt.kernel.nativeinterface.IOperateCallback
 import com.tencent.qqnt.kernel.nativeinterface.MsgConstant
 import com.tencent.qqnt.kernel.nativeinterface.MsgElement
 import com.tencent.qqnt.msg.api.IMsgService
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -20,6 +24,8 @@ import moe.fuqiuluo.shamrock.tools.asJsonObjectOrNull
 import moe.fuqiuluo.shamrock.tools.asString
 import moe.fuqiuluo.shamrock.tools.json
 import moe.fuqiuluo.shamrock.tools.jsonArray
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import kotlin.math.abs
 
 internal object MessageHelper {
@@ -36,31 +42,61 @@ internal object MessageHelper {
         }.second.filter {
             it.elementType != -1
         } as ArrayList<MsgElement>
-        return sendMessageWithoutMsgId(chatType, peerId, msg, callback, fromId)
+        return sendMessageWithoutMsgId(chatType, peerId, msg, fromId, callback)
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     suspend fun sendMessageWithoutMsgId(
         chatType: Int,
         peerId: String,
         message: JsonArray,
-        callback: IOperateCallback,
-        fromId: String = peerId
-    ): Pair<Long, Int> {
+        fromId: String = peerId,
+        callback: IOperateCallback
+    ): Result<Pair<Long, Int>> {
         val uniseq = generateMsgId(chatType)
         val msg = messageArrayToMessageElements(chatType, uniseq.second, peerId, message).also {
             if (it.second.isEmpty() && !it.first) error("消息合成失败，请查看日志或者检查输入。")
         }.second.filter {
             it.elementType != -1
         } as ArrayList<MsgElement>
-        return sendMessageWithoutMsgId(chatType, peerId, msg, callback, fromId)
+        val totalSize = msg.filter {
+            it.elementType == MsgConstant.KELEMTYPEPIC ||
+                    it.elementType == MsgConstant.KELEMTYPEPTT ||
+                    it.elementType == MsgConstant.KELEMTYPEVIDEO
+        }.map {
+            (it.picElement?.fileSize ?: 0) + (it.pttElement?.fileSize
+                ?: 0) + (it.videoElement?.fileSize ?: 0)
+        }.reduceOrNull { a, b -> a + b } ?: 0
+
+        val estimateTime =  (totalSize / (300 * 1024)) * 1000 + 5000
+        lateinit var sendResultPair: Pair<Long, Int>
+        val sendRet = withTimeoutOrNull<Pair<Int, String>>(estimateTime) {
+            suspendCoroutine {
+                GlobalScope.launch {
+                    sendResultPair = sendMessageWithoutMsgId(
+                        chatType,
+                        peerId,
+                        msg,
+                        fromId
+                    ) { code, message ->
+                        callback.onResult(code, message)
+                        it.resume(code to message)
+                    }
+                }
+            }
+        }
+        if (sendRet?.first != 0) {
+            return Result.failure(SendMsgException(sendRet?.second ?: "发送消息超时"))
+        }
+        return Result.success(sendResultPair)
     }
 
     suspend fun sendMessageWithoutMsgId(
         chatType: Int,
         peerId: String,
         message: ArrayList<MsgElement>,
-        callback: IOperateCallback,
-        fromId: String = peerId
+        fromId: String = peerId,
+        callback: IOperateCallback
     ): Pair<Long, Int> {
         return sendMessageWithoutMsgId(generateContact(chatType, peerId, fromId), message, callback)
     }
@@ -74,7 +110,7 @@ internal object MessageHelper {
         val nonMsg: Boolean = message.isEmpty()
         return if (!nonMsg) {
             val service = QRoute.api(IMsgService::class.java)
-            if(callback is MsgSvc.MessageCallback) {
+            if (callback is MsgSvc.MessageCallback) {
                 callback.msgHash = uniseq.first
             }
 
@@ -107,7 +143,7 @@ internal object MessageHelper {
         val nonMsg: Boolean = message.isEmpty()
         return if (!nonMsg) {
             val service = QRoute.api(IMsgService::class.java)
-            if(callback is MsgSvc.MessageCallback) {
+            if (callback is MsgSvc.MessageCallback) {
                 callback.msgHash = uniseq.first
             }
 
@@ -132,7 +168,7 @@ internal object MessageHelper {
         val nonMsg: Boolean = message.isEmpty()
         return if (!nonMsg) {
             val service = QRoute.api(IMsgService::class.java)
-            if(callback is MsgSvc.MessageCallback) {
+            if (callback is MsgSvc.MessageCallback) {
                 callback.msgHash = uniseq.first
             }
 
@@ -148,6 +184,32 @@ internal object MessageHelper {
         }
     }
 
+    suspend fun sendMessageNoCb(
+        chatType: Int,
+        peerId: String,
+        message: JsonArray,
+        fromId: String = peerId
+    ): Pair<Int, Long> {
+        val uniseq = generateMsgId(chatType)
+        val msg = messageArrayToMessageElements(chatType, uniseq.second, peerId, message).also {
+            if (it.second.isEmpty() && !it.first) error("消息合成失败，请查看日志或者检查输入。")
+        }.second.filter {
+            it.elementType != -1
+        } as ArrayList<MsgElement>
+        val contact = generateContact(chatType, peerId, fromId)
+        val nonMsg: Boolean = message.isEmpty()
+        return if (!nonMsg) {
+            val service = QRoute.api(IMsgService::class.java)
+            return suspendCoroutine {
+                service.sendMsg(contact, uniseq.second, msg) { code, why ->
+                    it.resume(code to uniseq.second)
+                }
+            }
+        } else {
+            -1 to uniseq.second
+        }
+    }
+
     suspend fun generateContact(chatType: Int, id: String, subId: String = ""): Contact {
         val peerId = if (MsgConstant.KCHATTYPEC2C == chatType || MsgConstant.KCHATTYPETEMPC2CFROMGROUP == chatType) {
             ContactHelper.getUidByUinAsync(id.toLong())
@@ -156,7 +218,7 @@ internal object MessageHelper {
     }
 
     fun obtainMessageTypeByDetailType(detailType: String): Int {
-        return when(detailType) {
+        return when (detailType) {
             "troop", "group" -> MsgConstant.KCHATTYPEGROUP
             "private" -> MsgConstant.KCHATTYPEC2C
             "less" -> MsgConstant.KCHATTYPETEMPC2CFROMUNKNOWN
@@ -166,7 +228,7 @@ internal object MessageHelper {
     }
 
     fun obtainDetailTypeByMsgType(msgType: Int): String {
-        return when(msgType) {
+        return when (msgType) {
             MsgConstant.KCHATTYPEGROUP -> "group"
             MsgConstant.KCHATTYPEC2C -> "private"
             MsgConstant.KCHATTYPEGUILD -> "guild"
@@ -180,9 +242,9 @@ internal object MessageHelper {
         var hasActionMsg = false
         messageList.forEach {
             val msg = it.jsonObject
-            try {
-                val maker = MessageMaker[msg["type"].asString]
-                if (maker != null) {
+            val maker = MessageMaker[msg["type"].asString]
+            if (maker != null) {
+                try {
                     val data = msg["data"].asJsonObjectOrNull ?: EmptyJsonObject
                     maker(chatType, msgId, targetUin, data).onSuccess { msgElem ->
                         msgList.add(msgElem)
@@ -193,16 +255,19 @@ internal object MessageHelper {
                             hasActionMsg = true
                         }
                     }
+                } catch (e: Throwable) {
+                    LogCenter.log(e.stackTraceToString(), Level.ERROR)
                 }
-            } catch (e: Throwable) {
-                LogCenter.log(e.stackTraceToString(), Level.ERROR)
+            } else {
+                LogCenter.log("不支持的消息类型: ${msg["type"].asString}", Level.ERROR)
+                return false to arrayListOf()
             }
         }
         return hasActionMsg to msgList
     }
 
     fun generateMsgIdHash(chatType: Int, msgId: Long): Int {
-        val key =  when (chatType) {
+        val key = when (chatType) {
             MsgConstant.KCHATTYPEGROUP -> "grp$msgId"
             MsgConstant.KCHATTYPEC2C -> "c2c$msgId"
             MsgConstant.KCHATTYPETEMPC2CFROMGROUP -> "tmpgrp$msgId"

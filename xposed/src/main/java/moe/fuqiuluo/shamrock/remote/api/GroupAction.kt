@@ -8,11 +8,17 @@ import io.ktor.server.routing.Routing
 import moe.fuqiuluo.shamrock.remote.action.ActionManager
 import moe.fuqiuluo.shamrock.remote.action.ActionSession
 import moe.fuqiuluo.shamrock.remote.action.handlers.*
+import moe.fuqiuluo.shamrock.tools.fetch
 import moe.fuqiuluo.shamrock.tools.fetchOrNull
 import moe.fuqiuluo.shamrock.tools.fetchOrThrow
 import moe.fuqiuluo.shamrock.tools.getOrPost
 
 fun Routing.troopAction() {
+    getOrPost("/get_prohibited_member_list") {
+        val groupId = fetchOrThrow("group_id").toLong()
+        call.respondText(GetProhibitedMemberList(groupId), ContentType.Application.Json)
+    }
+
     getOrPost("/group_touch") {
         val groupId = fetchOrThrow("group_id")
         val userId = fetchOrThrow("user_id")
@@ -21,31 +27,36 @@ fun Routing.troopAction() {
 
     getOrPost("/get_group_honor_info") {
         val groupId = fetchOrThrow("group_id")
-        val refresh = fetchOrNull("refresh")?.toBooleanStrict() ?: false
+        val refresh = fetchOrNull("no_cache")?.toBooleanStrict()
+            ?: fetchOrNull("refresh")?.toBooleanStrict() ?: false
         call.respondText(GetTroopHonor(groupId, refresh), ContentType.Application.Json)
     }
 
     getOrPost("/get_group_member_list") {
         val groupId = fetchOrThrow("group_id")
-        val refresh = fetchOrNull("refresh")?.toBooleanStrict() ?: false
+        val refresh = fetchOrNull("no_cache")?.toBooleanStrict()
+            ?: fetchOrNull("refresh")?.toBooleanStrict() ?: false
         call.respondText(GetTroopMemberList(groupId, refresh), ContentType.Application.Json)
     }
 
     getOrPost("/get_group_member_info") {
         val groupId = fetchOrThrow("group_id")
         val userId = fetchOrThrow("user_id")
-        val refresh = fetchOrNull("no_cache")?.toBooleanStrict() ?: false
+        val refresh = fetchOrNull("no_cache")?.toBooleanStrict()
+            ?: fetchOrNull("refresh")?.toBooleanStrict() ?: false
         call.respondText(GetTroopMemberInfo(groupId, userId, refresh), ContentType.Application.Json)
     }
 
     getOrPost("/get_group_list") {
-        val refresh = fetchOrNull("refresh")?.toBooleanStrict() ?: true
+        val refresh = fetchOrNull("refresh")?.toBooleanStrict()
+            ?: fetchOrNull("refresh")?.toBooleanStrict() ?: true
         call.respondText(GetTroopList(refresh), ContentType.Application.Json)
     }
 
     getOrPost("/get_group_info") {
         val groupId = fetchOrThrow("group_id")
-        val refresh = fetchOrNull("no_cache")?.toBooleanStrict() ?: false
+        val refresh = fetchOrNull("no_cache")?.toBooleanStrict()
+            ?: fetchOrNull("refresh")?.toBooleanStrict() ?: false
         call.respondText(GetTroopInfo(groupId, refresh), ContentType.Application.Json)
     }
 
@@ -104,6 +115,29 @@ fun Routing.troopAction() {
     getOrPost("/delete_essence_msg") {
         val messageId = fetchOrThrow("message_id").toInt()
         call.respondText(DeleteEssenceMessage(messageId), ContentType.Application.Json)
+    }
+
+    getOrPost("/get_essence_msg_list") {
+        val groupId = fetchOrThrow("group_id").toLong()
+        val page = fetchOrNull("page")?.toIntOrNull() ?: 0
+        val pageSize = fetchOrNull("page_size")?.toIntOrNull() ?: 20
+        call.respondText(GetEssenceMessageList(groupId, page, pageSize), ContentType.Application.Json)
+    }
+
+    getOrPost("/get_group_system_msg") {
+        call.respondText(GetGroupSystemMsg(), ContentType.Application.Json)
+    }
+
+    getOrPost("/_get_group_notice") {
+        val groupId = fetchOrThrow("group_id").toLong()
+        call.respondText(GetGroupNotice(groupId), ContentType.Application.Json)
+    }
+
+    getOrPost("/_send_group_notice") {
+        val groupId = fetchOrThrow("group_id").toLong()
+        val text = fetchOrThrow("content")
+        val image = fetchOrNull("image")
+        call.respondText(SendGroupNotice(groupId, text, image), ContentType.Application.Json)
     }
 
 }

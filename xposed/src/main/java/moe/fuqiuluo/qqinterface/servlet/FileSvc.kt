@@ -1,15 +1,8 @@
 package moe.fuqiuluo.qqinterface.servlet
 
 import com.tencent.mobileqq.pb.ByteStringMicro
-import com.tencent.qqnt.kernel.nativeinterface.DeleteGroupFileResult
-import com.tencent.qqnt.kernel.nativeinterface.GroupFileCommonResult
-import com.tencent.qqnt.kernel.nativeinterface.IDeleteGroupFileCallback
-import io.ktor.util.Deflate
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import moe.fuqiuluo.proto.protobufOf
+import moe.fuqiuluo.qqinterface.servlet.entries.*
 import moe.fuqiuluo.qqinterface.servlet.transfile.RichProtoSvc
 import moe.fuqiuluo.shamrock.helper.Level
 import moe.fuqiuluo.shamrock.helper.LogCenter
@@ -176,7 +169,11 @@ internal object FileSvc: BaseSvc() {
                                 modifyTime = fileInfo.uint32_modify_time.get(),
                                 downloadTimes = fileInfo.uint32_download_times.get(),
                                 uploadUin = fileInfo.uint64_uploader_uin.get(),
-                                uploadNick = fileInfo.str_uploader_name.get()
+                                uploadNick = fileInfo.str_uploader_name.get(),
+                                md5 = fileInfo.bytes_md5.get().toByteArray().toHexString(),
+                                sha = fileInfo.bytes_sha.get().toByteArray().toHexString(),
+                                // 根本没有
+                                sha3 = fileInfo.bytes_sha3.get().toByteArray().toHexString(),
                             ))
                         }
                         else if (file.uint32_type.get() == oidb_0x6d8.GetFileListRspBody.TYPE_FOLDER) {
@@ -204,49 +201,4 @@ internal object FileSvc: BaseSvc() {
             LogCenter.log(it.message + ", buffer: ${rspGetFileListBuffer.toHexString()}", Level.ERROR)
         }
     }
-
-    @Serializable
-    data class FileUrl(
-        @SerialName("url") val url: String,
-    )
-
-    @Serializable
-    data class GroupFileList(
-        @SerialName("files") val files: List<FileInfo>,
-        @SerialName("folders") val folders: List<FolderInfo>,
-    )
-
-    @Serializable
-    data class FileInfo(
-        @SerialName("group_id") val groupId: Long,
-        @SerialName("file_id") val fileId: String,
-        @SerialName("file_name") val fileName: String,
-        @SerialName("file_size") val fileSize: Long,
-        @SerialName("busid") val busid: Int,
-        @SerialName("upload_time") val uploadTime: Int,
-        @SerialName("dead_time") val deadTime: Int,
-        @SerialName("modify_time") val modifyTime: Int,
-        @SerialName("download_times") val downloadTimes: Int,
-        @SerialName("uploader") val uploadUin: Long,
-        @SerialName("upload_name") val uploadNick: String,
-    )
-
-    @Serializable
-    data class FolderInfo(
-        @SerialName("group_id") val groupId: Long,
-        @SerialName("folder_id") val folderId: String,
-        @SerialName("folder_name") val folderName: String,
-        @SerialName("total_file_count") val totalFileCount: Int,
-        @SerialName("create_time") val createTime: Int,
-        @SerialName("creator") val creator: Long,
-        @SerialName("creator_name") val creatorNick: String,
-    )
-
-    @Serializable
-    data class FileSystemInfo(
-        @SerialName("file_count") val fileCount: Int,
-        @SerialName("limit_count") val fileLimitCount: Int,
-        @SerialName("used_space") val usedSpace: Long,
-        @SerialName("total_space") val totalSpace: Long,
-    )
 }

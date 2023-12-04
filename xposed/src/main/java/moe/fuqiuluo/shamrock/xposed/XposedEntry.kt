@@ -7,7 +7,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 import de.robv.android.xposed.XposedBridge.log
 import moe.fuqiuluo.shamrock.utils.MMKVFetcher
 import moe.fuqiuluo.shamrock.xposed.loader.ActionLoader
-import moe.fuqiuluo.shamrock.xposed.loader.FuckAMS
+import moe.fuqiuluo.shamrock.xposed.loader.KeepAlive
 import moe.fuqiuluo.shamrock.xposed.loader.LuoClassloader
 import moe.fuqiuluo.shamrock.tools.FuzzySearchClass
 import moe.fuqiuluo.shamrock.tools.afterHook
@@ -26,6 +26,12 @@ internal class XposedEntry: IXposedHookLoadPackage {
     companion object {
         @JvmStatic
         var sec_static_stage_inited = false
+        @JvmStatic
+        var sec_static_nativehook_inited = false
+
+        external fun injected(): Boolean
+
+        external fun hasEnv(): Boolean
     }
 
     private var firstStageInit = false
@@ -33,7 +39,7 @@ internal class XposedEntry: IXposedHookLoadPackage {
     override fun handleLoadPackage(param: XC_LoadPackage.LoadPackageParam) {
         when (param.packageName) {
             PACKAGE_NAME_QQ -> entryMQQ(param.classLoader)
-            "android" -> FuckAMS.injectAMS(param.classLoader)
+            "android" -> KeepAlive(param.classLoader)
             PACKAGE_NAME_TIM -> entryTim(param.classLoader)
         }
     }
@@ -108,7 +114,6 @@ internal class XposedEntry: IXposedHookLoadPackage {
         if (sec_static_stage_inited) return
 
         val classLoader = ctx.classLoader.also { requireNotNull(it) }
-
         LuoClassloader.hostClassLoader = classLoader
 
         if(injectClassloader(XposedEntry::class.java.classLoader)) {

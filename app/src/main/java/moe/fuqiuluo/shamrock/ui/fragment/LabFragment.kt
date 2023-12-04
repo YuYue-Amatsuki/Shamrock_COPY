@@ -1,6 +1,6 @@
 package moe.fuqiuluo.shamrock.ui.fragment
 
-import android.widget.Toast
+import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import moe.fuqiuluo.shamrock.R
 import moe.fuqiuluo.shamrock.ui.app.AppRuntime
+import moe.fuqiuluo.shamrock.ui.app.Level
 import moe.fuqiuluo.shamrock.ui.app.ShamrockConfig
 import moe.fuqiuluo.shamrock.ui.theme.GlobalColor
 import moe.fuqiuluo.shamrock.ui.theme.LocalString
@@ -46,10 +47,11 @@ fun LabFragment() {
         }
         NoticeTextDialog(
             openDialog = showNoticeDialog,
-            title = "温馨提示",
-            text = "实验室功能会导致一些奇怪的问题，请谨慎使用！"
+            title = LocalString.warnTitle,
+            text = LocalString.labWarning
         )
 
+        val LocalString = LocalString
         ActionBox(
             modifier = Modifier.padding(top = 12.dp),
             painter = painterResource(id = R.drawable.baseline_preview_24),
@@ -63,19 +65,19 @@ fun LabFragment() {
                 )
 
                 Function(
-                    title = "中二病模式",
-                    desc = "也许会导致奇怪的问题，大抵就是你看不懂罢了。",
+                    title = LocalString.b2Mode,
+                    desc = LocalString.b2ModeDesc,
                     descColor = it,
                     isSwitch = ShamrockConfig.is2B(ctx)
                 ) {
                     ShamrockConfig.set2B(ctx, it)
-                    scope.toast(ctx, "重启生效哦！")
+                    scope.toast(ctx, LocalString.restartToast)
                     return@Function true
                 }
 
                 Function(
-                    title = "显示调试日志",
-                    desc = "会导致日志刷屏。",
+                    title = LocalString.showDebugLog,
+                    desc = LocalString.showDebugLogDesc,
                     descColor = it,
                     isSwitch = ShamrockConfig.isDebug(ctx)
                 ) {
@@ -90,7 +92,92 @@ fun LabFragment() {
             modifier = Modifier.padding(top = 12.dp),
             painter = painterResource(id = R.drawable.round_logo_dev_24),
             title = "实验功能"
-        ) {
+        ) { color ->
+            Column {
+                Divider(
+                    modifier = Modifier,
+                    color = GlobalColor.Divider,
+                    thickness = 0.2.dp
+                )
+
+                /*
+                Function(
+                    title = "自动清理QQ垃圾",
+                    desc = "也许会导致奇怪的问题（无效）。",
+                    descColor = color,
+                    isSwitch = ShamrockConfig.isAutoClean(ctx)
+                ) {
+                    ShamrockConfig.setAutoClean(ctx, it)
+                    ShamrockConfig.pushUpdate(ctx)
+                    return@Function false
+                }*/
+
+                Function(
+                    title = "自回复测试",
+                    desc = "发送[ping]，机器人发送一个具有调试信息的返回。",
+                    descColor = color,
+                    isSwitch = ShamrockConfig.enableAliveReply(ctx)
+                ) {
+                    ShamrockConfig.setAliveReply(ctx, it)
+                    return@Function true
+                }
+
+                Function(
+                    title = "开启远程操作 (Shell接口)",
+                    desc = "可能导致设备被入侵，请勿随意开启。",
+                    descColor = color,
+                    isSwitch = ShamrockConfig.allowShell(ctx)
+                ) {
+                    ShamrockConfig.setShellStatus(ctx, it)
+                    return@Function true
+                }
+
+                Function(
+                    title = "自动唤醒QQ",
+                    desc = "QQ进程死亡时重新打开QQ进程，前提本进程存活。",
+                    descColor = color,
+                    isSwitch = ShamrockConfig.enableAutoStart(ctx)
+                ) {
+                    ShamrockConfig.setAutoStart(ctx, it)
+                    return@Function true
+                }
+
+                kotlin.runCatching {
+                    ctx.getSharedPreferences("shared_config", Context.MODE_WORLD_READABLE)
+                }.onSuccess {
+                    Function(
+                        title = LocalString.persistentText,
+                        desc = LocalString.persistentTextDesc,
+                        descColor = color,
+                        isSwitch = it.getBoolean("persistent", false)
+                    ) { v ->
+                        it.edit().putBoolean("persistent", v).apply()
+                        scope.toast(ctx, LocalString.restartSysToast)
+                        return@Function true
+                    }
+
+                    Function(
+                        title = "禁用Doze模式",
+                        desc = "禁止系统进入节能模式。",
+                        descColor = color,
+                        isSwitch = it.getBoolean("hook_doze", false)
+                    ) { value ->
+                        it.edit().putBoolean("hook_doze", value).apply()
+                        scope.toast(ctx, LocalString.restartSysToast)
+                        return@Function true
+                    }
+                }.onFailure {
+                    AppRuntime.log("无法启用附加选项，LSPosed模块未激活或者不支持XSharedPreferences", Level.WARN)
+                }
+            }
+
+        }
+
+        ActionBox(
+            modifier = Modifier.padding(top = 12.dp),
+            painter = painterResource(id = R.drawable.sharp_lock_24),
+            title = "安全性设置"
+        ) { color ->
             Column {
                 Divider(
                     modifier = Modifier,
@@ -99,20 +186,9 @@ fun LabFragment() {
                 )
 
                 Function(
-                    title = "自动清理QQ垃圾",
-                    desc = "也许会导致奇怪的问题（无效）。",
-                    descColor = it,
-                    isSwitch = ShamrockConfig.isAutoClean(ctx)
-                ) {
-                    ShamrockConfig.setAutoClean(ctx, it)
-                    ShamrockConfig.pushUpdate(ctx)
-                    return@Function false
-                }
-
-                Function(
-                    title = "拦截QQ无用收包",
-                    desc = "测试阶段，可能导致网络异常或掉线。",
-                    descColor = it,
+                    title = LocalString.injectPacket,
+                    desc = LocalString.injectPacketDesc,
+                    descColor = color,
                     isSwitch = ShamrockConfig.isInjectPacket(ctx)
                 ) {
                     ShamrockConfig.setInjectPacket(ctx, it)
@@ -121,26 +197,31 @@ fun LabFragment() {
                 }
 
                 Function(
-                    title = "自动唤醒QQ",
-                    desc = "QQ进程死亡时重新打开QQ进程，前提本进程存活。",
-                    descColor = it,
-                    isSwitch = ShamrockConfig.enableAutoStart(ctx)
+                    title = LocalString.antiTrace,
+                    desc = LocalString.antiTraceDesc,
+                    descColor = color,
+                    isSwitch = ShamrockConfig.isAntiTrace(ctx)
                 ) {
-                    ShamrockConfig.setAutoStart(ctx, it)
+                    ShamrockConfig.setAntiTrace(ctx, it)
+                    ShamrockConfig.pushUpdate(ctx)
                     return@Function true
                 }
 
-                Function(
-                    title = "开启远程操作 (Shell接口)",
-                    desc = "可能导致设备被入侵，请勿随意开启。",
-                    descColor = it,
-                    isSwitch = ShamrockConfig.allowShell(ctx)
-                ) {
-                    ShamrockConfig.setShellStatus(ctx, it)
-                    return@Function true
+                kotlin.runCatching {
+                    ctx.getSharedPreferences("shared_config", Context.MODE_WORLD_READABLE)
+                }.onSuccess {
+                    Function(
+                        title = "反检测加强",
+                        desc = "可能导致某些设备频繁闪退",
+                        descColor = color,
+                        isSwitch = it.getBoolean("super_anti", false)
+                    ) { v ->
+                        it.edit().putBoolean("super_anti", v).apply()
+                        scope.toast(ctx, LocalString.restartToast)
+                        return@Function true
+                    }
                 }
             }
-
         }
 
         ActionBox(
@@ -161,7 +242,11 @@ fun LabFragment() {
                     descColor = it,
                     isSwitch = AppRuntime.state.supportVoice.value
                 ) {
+                    if(AppRuntime.state.supportVoice.value) {
+                        scope.toast(ctx, "关闭请手动删除文件。")
+                    } else {
                         scope.toast(ctx, "请按照Github提示手动操作。")
+                    }
                     return@Function false
                 }
             }

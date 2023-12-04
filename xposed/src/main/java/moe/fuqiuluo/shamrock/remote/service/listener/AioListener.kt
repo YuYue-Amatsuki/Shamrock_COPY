@@ -1,11 +1,13 @@
 @file:OptIn(DelicateCoroutinesApi::class)
 package moe.fuqiuluo.shamrock.remote.service.listener
 
+import android.os.Build
 import moe.fuqiuluo.shamrock.helper.MessageHelper
 import com.tencent.qqnt.kernel.nativeinterface.*
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import moe.fuqiuluo.qqinterface.servlet.MsgSvc
 import moe.fuqiuluo.qqinterface.servlet.TicketSvc
 import moe.fuqiuluo.qqinterface.servlet.msg.convert.toCQCode
 import moe.fuqiuluo.qqinterface.servlet.transfile.RichProtoSvc
@@ -14,8 +16,10 @@ import moe.fuqiuluo.shamrock.helper.Level
 import moe.fuqiuluo.shamrock.helper.LogCenter
 import moe.fuqiuluo.shamrock.helper.db.MessageDB
 import moe.fuqiuluo.shamrock.remote.service.api.GlobalEventTransmitter
+import moe.fuqiuluo.shamrock.remote.service.api.RichMediaUploadHandler
 import moe.fuqiuluo.shamrock.remote.service.data.push.MessageTempSource
 import moe.fuqiuluo.shamrock.remote.service.data.push.PostType
+import mqq.app.MobileQQ
 import java.util.ArrayList
 import java.util.Collections
 import kotlin.collections.HashMap
@@ -62,6 +66,10 @@ internal object AioListener: IKernelMsgListener {
             val rawMsg = record.elements.toCQCode(record.chatType, record.peerUin.toString())
             if (rawMsg.isEmpty()) return
 
+            if (ShamrockConfig.aliveReply() && rawMsg == "ping") {
+                MessageHelper.sendMessageWithoutMsgId(record.chatType, record.peerUin.toString(), "pong", { _, _ ->  })
+            }
+
             //if (rawMsg.contains("forward")) {
             //    LogCenter.log(record.extInfoForUI.decodeToString(), Level.WARN)
             //}
@@ -70,8 +78,8 @@ internal object AioListener: IKernelMsgListener {
                 MsgConstant.KCHATTYPEGROUP -> {
                     LogCenter.log("群消息(group = ${record.peerName}(${record.peerUin}), uin = ${record.senderUin}, id = $msgHash|${record.msgSeq}, msg = $rawMsg)")
                     ShamrockConfig.getGroupMsgRule()?.let { rule ->
-                        if (rule.black?.contains(record.peerUin) == true) return
-                        if (rule.white?.contains(record.peerUin) == false) return
+                        if (!rule.black.isNullOrEmpty() && rule.black.contains(record.senderUin)) return
+                        if (!rule.white.isNullOrEmpty() && !rule.white.contains(record.senderUin)) return
                     }
 
                     if(!GlobalEventTransmitter.MessageTransmitter.transGroupMessage(
@@ -83,8 +91,8 @@ internal object AioListener: IKernelMsgListener {
                 MsgConstant.KCHATTYPEC2C -> {
                     LogCenter.log("私聊消息(private = ${record.senderUin}, id = [$msgHash | ${record.msgId} | ${record.msgSeq}], msg = $rawMsg)")
                     ShamrockConfig.getPrivateRule()?.let { rule ->
-                        if (rule.black?.contains(record.peerUin) == true) return
-                        if (rule.white?.contains(record.peerUin) == false) return
+                        if (!rule.black.isNullOrEmpty() && rule.black.contains(record.senderUin)) return
+                        if (!rule.white.isNullOrEmpty() && !rule.white.contains(record.senderUin)) return
                     }
 
                     if(!GlobalEventTransmitter.MessageTransmitter.transPrivateMessage(
@@ -95,14 +103,12 @@ internal object AioListener: IKernelMsgListener {
                 }
 
                 MsgConstant.KCHATTYPETEMPC2CFROMGROUP -> {
-                    if (!ShamrockConfig.allowTempSession()) {
-                        return
-                    }
+                    if (!ShamrockConfig.allowTempSession()) return
 
                     LogCenter.log("私聊临时消息(private = ${record.senderUin}, id = $msgHash, msg = $rawMsg)")
                     ShamrockConfig.getPrivateRule()?.let { rule ->
-                        if (rule.black?.contains(record.peerUin) == true) return
-                        if (rule.white?.contains(record.peerUin) == false) return
+                        if (!rule.black.isNullOrEmpty() && rule.black.contains(record.senderUin)) return
+                        if (!rule.white.isNullOrEmpty() && !rule.white.contains(record.senderUin)) return
                     }
 
                     if(!GlobalEventTransmitter.MessageTransmitter.transPrivateMessage(
@@ -116,6 +122,10 @@ internal object AioListener: IKernelMsgListener {
         } catch (e: Throwable) {
             LogCenter.log(e.stackTraceToString(), Level.WARN)
         }
+    }
+
+    override fun onMsgRecall(chatType: Int, peerId: String, msgId: Long) {
+        LogCenter.log("onMsgRecall($chatType, $peerId, $msgId)")
     }
 
     override fun onAddSendMsg(record: MsgRecord) {
@@ -136,10 +146,7 @@ internal object AioListener: IKernelMsgListener {
                     time = record.msgTime
                 )
 
-                val rawMsg = record.elements.toCQCode(record.chatType, record.peerUin.toString())
-                if (rawMsg.isEmpty()) return@launch
-
-                LogCenter.log("发送消息($msgHash | ${record.msgSeq} | ${record.msgId}): $rawMsg")
+                LogCenter.log("预发送消息($msgHash | ${record.msgSeq} | ${record.msgId})")
             } catch (e: Throwable) {
                 LogCenter.log(e.stackTraceToString(), Level.WARN)
             }
@@ -148,14 +155,14 @@ internal object AioListener: IKernelMsgListener {
 
     override fun onMsgInfoListUpdate(msgList: ArrayList<MsgRecord>?) {
         msgList?.forEach { record ->
+            if (record.chatType == MsgConstant.KCHATTYPEGUILD) return@forEach// TODO: 频道消息暂不处理
+
+            if (record.sendStatus == MsgConstant.KSENDSTATUSFAILED
+                || record.sendStatus == MsgConstant.KSENDSTATUSSENDING) {
+                return@forEach
+            }
+
             GlobalScope.launch {
-                if (record.chatType == MsgConstant.KCHATTYPEGUILD) return@launch// TODO: 频道消息暂不处理
-
-                if (record.sendStatus == MsgConstant.KSENDSTATUSFAILED
-                    || record.sendStatus == MsgConstant.KSENDSTATUSSENDING) {
-                    return@launch
-                }
-
                 val msgHash = MessageHelper.generateMsgIdHash(record.chatType, record.msgId)
 
                 val mapping = MessageHelper.getMsgMappingByHash(msgHash)
@@ -175,25 +182,32 @@ internal object AioListener: IKernelMsgListener {
                         .updateMsgSeqByMsgHash(msgHash, record.msgSeq.toInt())
                 }
 
-                if (!ShamrockConfig.enableSelfMsg())
+                if (!ShamrockConfig.enableSelfMsg() || record.senderUin != TicketSvc.getLongUin())
                     return@launch
 
                 val rawMsg = record.elements.toCQCode(record.chatType, record.peerUin.toString())
                 if (rawMsg.isEmpty()) return@launch
+                LogCenter.log("自发消息(target = ${record.peerUin}, id = $msgHash, msg = $rawMsg)")
 
                 when (record.chatType) {
                     MsgConstant.KCHATTYPEGROUP -> {
-                        GlobalEventTransmitter.MessageTransmitter
-                            .transGroupMessage(record, record.elements, rawMsg, msgHash, PostType.MsgSent)
+                        if(!GlobalEventTransmitter.MessageTransmitter
+                            .transGroupMessage(record, record.elements, rawMsg, msgHash, PostType.MsgSent)) {
+                            LogCenter.log("自发群消息推送失败 -> MessageTransmitter", Level.WARN)
+                        }
                     }
                     MsgConstant.KCHATTYPEC2C -> {
-                        GlobalEventTransmitter.MessageTransmitter
-                            .transPrivateMessage(record, record.elements, rawMsg, msgHash, PostType.MsgSent)
+                        if(!GlobalEventTransmitter.MessageTransmitter
+                            .transPrivateMessage(record, record.elements, rawMsg, msgHash, PostType.MsgSent)) {
+                            LogCenter.log("自发私聊消息推送失败 -> MessageTransmitter", Level.WARN)
+                        }
                     }
                     MsgConstant.KCHATTYPETEMPC2CFROMGROUP -> {
                         if (!ShamrockConfig.allowTempSession()) return@launch
-                        GlobalEventTransmitter.MessageTransmitter
-                            .transPrivateMessage(record, record.elements, rawMsg, msgHash, PostType.MsgSent, MessageTempSource.Group)
+                        if(!GlobalEventTransmitter.MessageTransmitter
+                            .transPrivateMessage(record, record.elements, rawMsg, msgHash, PostType.MsgSent, MessageTempSource.Group)) {
+                            LogCenter.log("自发私聊临时消息推送失败 -> MessageTransmitter", Level.WARN)
+                        }
                     }
                     else -> LogCenter.log("不支持SELF PUSH事件: ${record.chatType}")
                 }
@@ -345,6 +359,11 @@ internal object AioListener: IKernelMsgListener {
         }
     }
 
+    override fun onRichMediaUploadComplete(notifyInfo: FileTransNotifyInfo) {
+        LogCenter.log("onRichMediaUploadComplete($notifyInfo)", Level.DEBUG)
+        RichMediaUploadHandler.notify(notifyInfo)
+    }
+
     override fun onRecvOnlineFileMsg(arrayList: ArrayList<MsgRecord>?) {
         LogCenter.log(("onRecvOnlineFileMsg" + arrayList?.joinToString { ", " }), Level.DEBUG)
     }
@@ -354,10 +373,6 @@ internal object AioListener: IKernelMsgListener {
     }
 
     override fun onRichMediaProgerssUpdate(fileTransNotifyInfo: FileTransNotifyInfo) {
-
-    }
-
-    override fun onRichMediaUploadComplete(fileTransNotifyInfo: FileTransNotifyInfo) {
 
     }
 
@@ -383,6 +398,14 @@ internal object AioListener: IKernelMsgListener {
 
     override fun onGroupTransferInfoUpdate(groupFileListResult: GroupFileListResult?) {
         LogCenter.log("onGroupTransferInfoUpdate: " + groupFileListResult.toString(), Level.DEBUG)
+    }
+
+    override fun onGuildInteractiveUpdate(guildInteractiveNotificationItem: GuildInteractiveNotificationItem?) {
+
+    }
+
+    override fun onGuildNotificationAbstractUpdate(guildNotificationAbstractInfo: GuildNotificationAbstractInfo?) {
+
     }
 
     override fun onHitCsRelatedEmojiResult(downloadRelateEmojiResultInfo: DownloadRelateEmojiResultInfo?) {
@@ -431,10 +454,6 @@ internal object AioListener: IKernelMsgListener {
 
     override fun onMsgQRCodeStatusChanged(i2: Int) {
 
-    }
-
-    override fun onMsgRecall(chatType: Int, peerId: String?, msgId: Long) {
-        LogCenter.log("onMsgRecall($chatType, $peerId, $msgId)")
     }
 
     override fun onMsgSecurityNotify(msgRecord: MsgRecord?) {
